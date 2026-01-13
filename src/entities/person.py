@@ -312,7 +312,7 @@ class Person:
 FIRST_NAMES = [
     "Ada", "Marcus", "Elena", "Thomas", "Maria", "John", "Sarah", "William",
     "Emma", "James", "Olivia", "Henry", "Sophia", "George", "Isabella", "Edward",
-    "Mia", "Arthur", "Charlotte", "Frederick", "Amelia", "Albert", "Grace", "Harold"
+    "Mia", "Arthur", "Charlotte", "Frederick", "Amelia", "Albert", "Grace", "Harold", "Sajjad"
 ]
 
 LAST_NAMES = [
