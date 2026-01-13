@@ -1,0 +1,67 @@
+{
+  "character": {
+    "id": "64142ffb-5547-4f2a-bf86-b4491bd4d99b",
+    "name": "Villager",
+    "prompt": "medieval villager woman with brown dress and simple clothing, friendly appearance",
+    "size": {
+      "width": 48,
+      "height": 48
+    },
+    "template_id": "mannequin",
+    "directions": 4,
+    "view": "high top-down",
+    "created_at": "2026-01-13T07:05:00.000000+00:00"
+  },
+  "frames": {
+    "rotations": {
+      "south": "rotations/south.png",
+      "west": "rotations/west.png",
+      "east": "rotations/east.png",
+      "north": "rotations/north.png"
+    },
+    "animations": {
+      "walking-8-frames": {
+        "west": [
+          "animations/walking-8-frames/west/frame_000.png",
+          "animations/walking-8-frames/west/frame_001.png",
+          "animations/walking-8-frames/west/frame_002.png",
+          "animations/walking-8-frames/west/frame_003.png",
+          "animations/walking-8-frames/west/frame_004.png",
+          "animations/walking-8-frames/west/frame_005.png",
+          "animations/walking-8-frames/west/frame_006.png",
+          "animations/walking-8-frames/west/frame_007.png"
+        ],
+        "east": [
+          "animations/walking-8-frames/east/frame_000.png",
+          "animations/walking-8-frames/east/frame_001.png",
+          "animations/walking-8-frames/east/frame_002.png",
+          "animations/walking-8-frames/east/frame_003.png",
+          "animations/walking-8-frames/east/frame_004.png",
+          "animations/walking-8-frames/east/frame_005.png",
+          "animations/walking-8-frames/east/frame_006.png",
+          "animations/walking-8-frames/east/frame_007.png"
+        ],
+        "north": [
+          "animations/walking-8-frames/north/frame_000.png",
+          "animations/walking-8-frames/north/frame_001.png",
+          "animations/walking-8-frames/north/frame_002.png",
+          "animations/walking-8-frames/north/frame_003.png",
+          "animations/walking-8-frames/north/frame_004.png",
+          "animations/walking-8-frames/north/frame_005.png",
+          "animations/walking-8-frames/north/frame_006.png",
+          "animations/walking-8-frames/north/frame_007.png"
+        ],
+        "south": [
+          "animations/walking-8-frames/south/frame_000.png",
+          "animations/walking-8-frames/south/frame_001.png",
+          "animations/walking-8-frames/south/frame_002.png",
+          "animations/walking-8-frames/south/frame_003.png",
+          "animations/walking-8-frames/south/frame_004.png",
+          "animations/walking-8-frames/south/frame_005.png",
+          "animations/walking-8-frames/south/frame_006.png",
+          "animations/walking-8-frames/south/frame_007.png"
+        ]
+      }
+    }
+  }
+}
