@@ -83,24 +83,46 @@ class WorldRenderer:
                 (screen_x, screen_y, tile_size, tile_size)
             )
 
-    def _get_transition_sprite(self, x: int, y: int, terrain: TerrainType, tile_size: int) -> pygame.Surface:
-        """Get Wang tile sprite for terrain transitions."""
-        # Check what terrain types are adjacent
+    def _get_grass_sprite(self, x: int, y: int, tile_size: int) -> pygame.Surface:
+        """Get grass sprite, using Wang tiles for transitions."""
         neighbors = self._get_neighbor_terrains(x, y)
 
-        # Check for grass/water transitions
+        # Check for grass/water transitions first (water takes priority)
         if TerrainType.WATER in neighbors.values():
             corners = self._calculate_corners(x, y, TerrainType.GRASS, TerrainType.WATER)
-            if corners != (1, 1, 1, 1):  # Not all grass
-                return self._get_wang_sprite("grass_water", corners, tile_size, x, y)
+            return self._get_wang_sprite("grass_water", corners, tile_size, x, y)
 
         # Check for grass/road transitions
         if TerrainType.ROAD in neighbors.values():
             corners = self._calculate_corners(x, y, TerrainType.GRASS, TerrainType.ROAD)
-            if corners != (1, 1, 1, 1):  # Not all grass
-                return self._get_wang_sprite("grass_dirt", corners, tile_size, x, y)
+            return self._get_wang_sprite("grass_dirt", corners, tile_size, x, y)
 
-        return None
+        # Pure grass (all corners = upper = 1)
+        return self._get_wang_sprite("grass_dirt", (1, 1, 1, 1), tile_size, x, y)
+
+    def _get_road_sprite(self, x: int, y: int, tile_size: int) -> pygame.Surface:
+        """Get road/dirt sprite from Wang tileset."""
+        neighbors = self._get_neighbor_terrains(x, y)
+
+        # Check for road/grass transitions
+        if TerrainType.GRASS in neighbors.values():
+            corners = self._calculate_corners(x, y, TerrainType.GRASS, TerrainType.ROAD)
+            return self._get_wang_sprite("grass_dirt", corners, tile_size, x, y)
+
+        # Pure road (all corners = lower = 0)
+        return self._get_wang_sprite("grass_dirt", (0, 0, 0, 0), tile_size, x, y)
+
+    def _get_water_sprite(self, x: int, y: int, tile_size: int) -> pygame.Surface:
+        """Get water sprite from Wang tileset."""
+        neighbors = self._get_neighbor_terrains(x, y)
+
+        # Check for water/grass transitions
+        if TerrainType.GRASS in neighbors.values():
+            corners = self._calculate_corners(x, y, TerrainType.GRASS, TerrainType.WATER)
+            return self._get_wang_sprite("grass_water", corners, tile_size, x, y)
+
+        # Pure water (all corners = lower = 0)
+        return self._get_wang_sprite("grass_water", (0, 0, 0, 0), tile_size, x, y)
 
     def _get_neighbor_terrains(self, x: int, y: int) -> dict[str, TerrainType]:
         """Get terrain types of all 8 neighbors."""
@@ -119,47 +141,32 @@ class WorldRenderer:
         """Calculate corner values for Wang tile lookup.
 
         Returns (NW, NE, SW, SE) where 1 = upper terrain, 0 = lower terrain.
-        A corner is "upper" if the current cell and adjacent cells sharing that corner are upper terrain.
+        Each corner's value is based on the cell at that corner's position:
+        - NW corner = cell to the north-west (x-1, y-1)
+        - NE corner = cell to the north (x, y-1)
+        - SW corner = cell to the west (x-1, y)
+        - SE corner = current cell (x, y)
         """
+        current_tile = self.world.get_tile(x, y)
+        current_terrain = current_tile.terrain if current_tile else upper_terrain
 
         def get_terrain(dx: int, dy: int) -> TerrainType:
             tile = self.world.get_tile(x + dx, y + dy)
-            return tile.terrain if tile else upper_terrain
+            # For out-of-bounds, use current cell's terrain to avoid edge artifacts
+            return tile.terrain if tile else current_terrain
 
-        current = get_terrain(0, 0)
+        def is_upper(dx: int, dy: int) -> bool:
+            t = get_terrain(dx, dy)
+            return t == upper_terrain
 
-        # For each corner, check if any adjacent cell that shares it is the lower terrain
-        # NW corner: shared with cells at (-1, -1), (-1, 0), (0, -1)
-        nw_lower = any(
-            get_terrain(dx, dy) == lower_terrain
-            for dx, dy in [(-1, 0), (0, -1), (-1, -1)]
-        )
+        # Vertex-based corner calculation
+        # Each corner value = terrain of the cell at that corner position
+        nw = 1 if is_upper(-1, -1) else 0  # Cell to NW
+        ne = 1 if is_upper(0, -1) else 0   # Cell to N
+        sw = 1 if is_upper(-1, 0) else 0   # Cell to W
+        se = 1 if is_upper(0, 0) else 0    # Current cell
 
-        # NE corner: shared with cells at (1, -1), (1, 0), (0, -1)
-        ne_lower = any(
-            get_terrain(dx, dy) == lower_terrain
-            for dx, dy in [(1, 0), (0, -1), (1, -1)]
-        )
-
-        # SW corner: shared with cells at (-1, 1), (-1, 0), (0, 1)
-        sw_lower = any(
-            get_terrain(dx, dy) == lower_terrain
-            for dx, dy in [(-1, 0), (0, 1), (-1, 1)]
-        )
-
-        # SE corner: shared with cells at (1, 1), (1, 0), (0, 1)
-        se_lower = any(
-            get_terrain(dx, dy) == lower_terrain
-            for dx, dy in [(1, 0), (0, 1), (1, 1)]
-        )
-
-        # 1 = upper (grass), 0 = lower (road/water)
-        return (
-            0 if nw_lower else 1,
-            0 if ne_lower else 1,
-            0 if sw_lower else 1,
-            0 if se_lower else 1
-        )
+        return (nw, ne, sw, se)
 
     def _get_wang_sprite(self, tileset_name: str, corners: tuple, tile_size: int, x: int, y: int) -> pygame.Surface:
         """Get and scale a Wang tile sprite."""
