@@ -22,7 +22,7 @@ MOVEMENT_SPEED = 2.0  # Tiles per second
 INVENTORY_CAPACITY = 20
 
 # Time settings
-TIME_SCALE = 60.0  # 1 real second = 1 game minute
+TIME_SCALE = 1.0  # 1 real second = 1 game minute
 MINUTES_PER_DAY = 1440  # 24 hours * 60 minutes
 
 # Interaction settings
@@ -30,7 +30,8 @@ INTERACTION_COOLDOWN = 30.0  # Game minutes between interactions with same entit
 CONVERSATION_CHANCE = 0.7  # Base chance to start conversation when adjacent
 
 # AI settings
-CLAUDE_MODEL = "claude-haiku-4-5-20251001"
+CLAUDE_MODEL = "claude-haiku-4-5-20251001"  # For dialogue (fast, cheap)
+ACTION_ENGINE_MODEL = "claude-sonnet-4-5-20250929"  # For action interpretation/resolution (smarter)
 MAX_CONVERSATION_TURNS = 6  # Per participant (so 6 exchanges total = 12 messages max)
 API_REQUESTS_PER_MINUTE = 50
 API_TOKENS_PER_MINUTE = 40000

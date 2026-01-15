@@ -4,8 +4,21 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional
 import time
+import re
 
 from ..entities.person import Person
+
+
+def strip_actions_from_text(text: str) -> str:
+    """Remove *action* text from dialogue, keeping only spoken words.
+
+    Example: '"Hello!" *waves hand* "How are you?"' -> '"Hello!" "How are you?"'
+    """
+    # Remove text between asterisks (including the asterisks)
+    stripped = re.sub(r'\*[^*]+\*', '', text)
+    # Clean up extra whitespace
+    stripped = re.sub(r'\s+', ' ', stripped).strip()
+    return stripped
 
 
 class ConversationState(Enum):
@@ -24,6 +37,7 @@ class Message:
     content: str
     timestamp: float = field(default_factory=time.time)
     actions: list = field(default_factory=list)
+    is_narrator: bool = False  # True for narrator/action outcome messages
 
 
 class Conversation:
@@ -57,6 +71,23 @@ class Conversation:
         if self.turn_count >= self.max_turns * 2:  # Max turns per participant
             self.state = ConversationState.ENDING
 
+    def add_narrator_message(self, content: str):
+        """Add a narrator message describing an action outcome.
+
+        Narrator messages don't count toward turn count and are displayed
+        differently in the UI.
+        """
+        if not content:
+            return
+
+        self.messages.append(Message(
+            speaker_id="narrator",
+            speaker_name="Narrator",
+            content=content,
+            is_narrator=True
+        ))
+        # Don't increment turn count for narrator messages
+
     def switch_speaker(self) -> Person:
         """Switch to the other speaker and return them."""
         if self.current_speaker == self.participant_a:
@@ -72,35 +103,63 @@ class Conversation:
         return self.participant_a
 
     def get_messages_for_api(self, perspective: Person) -> list[dict[str, str]]:
-        """Format messages for Claude API from a participant's perspective."""
+        """Format messages for Claude API from a participant's perspective.
+
+        Narrator messages are included as user messages with a [Narrator] prefix
+        so the AI knows what happened.
+        """
         api_messages = []
 
         for msg in self.messages:
-            # From the perspective person's view:
-            # - Their own messages are "assistant"
-            # - Other person's messages are "user"
-            if msg.speaker_id == perspective.id:
-                role = "assistant"
+            if msg.is_narrator:
+                # Include narrator as context in a user message
+                api_messages.append({
+                    "role": "user",
+                    "content": f"[Narrator: {msg.content}]"
+                })
+            elif msg.speaker_id == perspective.id:
+                # Their own messages are "assistant"
+                api_messages.append({
+                    "role": "assistant",
+                    "content": msg.content
+                })
             else:
-                role = "user"
-
-            api_messages.append({
-                "role": role,
-                "content": msg.content
-            })
+                # Other person's messages are "user"
+                api_messages.append({
+                    "role": "user",
+                    "content": msg.content
+                })
 
         return api_messages
 
     def get_display_messages(self) -> list[dict]:
-        """Get messages formatted for display."""
-        return [
-            {
-                "speaker": msg.speaker_name,
-                "content": msg.content,
-                "timestamp": msg.timestamp
-            }
-            for msg in self.messages
-        ]
+        """Get messages formatted for display.
+
+        Dialogue messages have *actions* stripped out (those show as narrator messages).
+        Narrator messages are kept as-is for inline display.
+        """
+        result = []
+        for msg in self.messages:
+            if msg.is_narrator:
+                # Narrator messages display as-is
+                result.append({
+                    "speaker": msg.speaker_name,
+                    "content": msg.content,
+                    "timestamp": msg.timestamp,
+                    "is_narrator": True
+                })
+            else:
+                # Strip *actions* from dialogue display
+                display_content = strip_actions_from_text(msg.content)
+                # Only add if there's actual dialogue left
+                if display_content:
+                    result.append({
+                        "speaker": msg.speaker_name,
+                        "content": display_content,
+                        "timestamp": msg.timestamp,
+                        "is_narrator": False
+                    })
+        return result
 
     def end(self):
         """End the conversation."""

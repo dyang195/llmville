@@ -147,6 +147,66 @@ class Role:
 
 
 @dataclass
+class CharacterState:
+    """Dynamic state that affects character capabilities.
+
+    Uses descriptive conditions instead of just numeric HP.
+    """
+    # Descriptive health conditions (e.g., "broken leg", "black eye", "exhausted")
+    health_conditions: list[str] = field(default_factory=list)
+
+    # Base movement speed modifier (1.0 = normal)
+    base_move_speed: float = 1.0
+
+    @property
+    def effective_move_speed(self) -> float:
+        """Calculate actual move speed accounting for conditions."""
+        speed = self.base_move_speed
+
+        # Conditions and their speed modifiers
+        speed_modifiers = {
+            "broken leg": 0.3,
+            "sprained ankle": 0.6,
+            "broken foot": 0.4,
+            "limping": 0.7,
+            "exhausted": 0.6,
+            "drunk": 0.8,
+            "carrying heavy": 0.7,
+            "injured leg": 0.5,
+        }
+
+        for condition in self.health_conditions:
+            condition_lower = condition.lower()
+            for key, modifier in speed_modifiers.items():
+                if key in condition_lower:
+                    speed *= modifier
+                    break  # Only apply one modifier per condition
+
+        return max(0.1, speed)  # Minimum 10% speed
+
+    def add_condition(self, condition: str):
+        """Add a health condition if not already present."""
+        if condition and condition not in self.health_conditions:
+            self.health_conditions.append(condition)
+
+    def remove_condition(self, condition: str):
+        """Remove a health condition if present."""
+        if condition in self.health_conditions:
+            self.health_conditions.remove(condition)
+
+    def has_condition_like(self, keyword: str) -> bool:
+        """Check if any condition contains the keyword."""
+        keyword_lower = keyword.lower()
+        return any(keyword_lower in c.lower() for c in self.health_conditions)
+
+    def get_conditions_string(self) -> str:
+        """Get a readable string of all conditions."""
+        if not self.health_conditions:
+            return "healthy"
+        return ", ".join(self.health_conditions)
+
+
+@dataclass
 class InventorySlot:
     """A slot in the inventory holding an item and quantity."""
     item: Item
@@ -190,10 +250,13 @@ class Person:
         # Relationships
         self.relationships: dict[str, Relationship] = {}
 
-        # State
+        # Conversation state
         self.in_conversation: bool = False
         self.conversation_partner_id: Optional[str] = None
         self.facing_direction: str = "south"  # Default facing direction
+
+        # Dynamic character state (conditions, speed modifiers)
+        self.state = CharacterState()
 
     def get_grid_position(self) -> tuple[int, int]:
         """Get current grid position."""
@@ -229,9 +292,10 @@ class Person:
         return True
 
     def remove_item(self, item_id: str, quantity: int = 1) -> bool:
-        """Remove item from inventory. Returns True if successful."""
+        """Remove item from inventory. Returns True if successful (case-insensitive)."""
+        item_id_lower = item_id.lower()
         for i, slot in enumerate(self.inventory):
-            if slot.item.id == item_id:
+            if slot.item.id.lower() == item_id_lower or slot.item.name.lower() == item_id_lower:
                 if slot.quantity >= quantity:
                     slot.quantity -= quantity
                     if slot.quantity <= 0:

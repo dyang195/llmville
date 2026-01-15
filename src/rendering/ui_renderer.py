@@ -19,9 +19,13 @@ class UIRenderer:
         self.font_large = pygame.font.Font(None, 36)
         self.font_medium = pygame.font.Font(None, 28)
         self.font_small = pygame.font.Font(None, 22)
+        self.font_announcement = pygame.font.Font(None, 32)  # For centered announcements
 
         # UI state
         self.show_help = True
+
+        # Expand button bounds (for click detection)
+        self.expand_button_rect = None
 
     def render(self, selected_entity: Person = None, zoom: float = 1.0):
         """Render all UI elements."""
@@ -33,10 +37,19 @@ class UIRenderer:
             self._render_entity_panel(selected_entity)
 
     def _render_zoom_indicator(self, zoom: float):
-        """Render zoom level indicator."""
+        """Render zoom level indicator with background."""
         zoom_text = f"Zoom: {int(zoom * 100)}%"
-        zoom_surface = self.font_small.render(zoom_text, True, config.COLORS["text_dim"])
-        self.screen.blit(zoom_surface, (170, 18))
+        zoom_surface = self.font_small.render(zoom_text, True, (200, 200, 200))
+
+        # Add semi-transparent background
+        padding = 4
+        bg_width = zoom_surface.get_width() + padding * 2
+        bg_height = zoom_surface.get_height() + padding * 2
+        bg_surface = pygame.Surface((bg_width, bg_height), pygame.SRCALPHA)
+        bg_surface.fill((0, 0, 0, 160))
+
+        self.screen.blit(bg_surface, (168 - padding, 16 - padding))
+        self.screen.blit(zoom_surface, (168, 16))
 
     def _render_time_display(self):
         """Render time and day display."""
@@ -68,7 +81,7 @@ class UIRenderer:
         self.screen.blit(time_surface, (20, 42))
 
     def _render_help_text(self):
-        """Render help text."""
+        """Render help text with background for readability."""
         if not self.show_help:
             return
 
@@ -76,14 +89,31 @@ class UIRenderer:
             "WASD/Arrows: Move camera",
             "Scroll/+/-: Zoom in/out",
             "Click: Select entity",
+            "Tab: Character details",
             "Space: Pause",
         ]
 
-        y = config.WINDOW_HEIGHT - 20 - len(help_lines) * 20
+        # Calculate background size
+        padding = 8
+        line_height = 20
+        max_width = max(self.font_small.size(line)[0] for line in help_lines)
+        bg_height = len(help_lines) * line_height + padding * 2
+        bg_width = max_width + padding * 2
+
+        y_start = config.WINDOW_HEIGHT - 15 - len(help_lines) * line_height
+        bg_rect = pygame.Rect(5, y_start - padding, bg_width, bg_height)
+
+        # Semi-transparent background
+        bg_surface = pygame.Surface((bg_width, bg_height), pygame.SRCALPHA)
+        bg_surface.fill((0, 0, 0, 160))
+        self.screen.blit(bg_surface, (5, y_start - padding))
+
+        # Render text
+        y = y_start
         for line in help_lines:
-            text = self.font_small.render(line, True, config.COLORS["text_dim"])
+            text = self.font_small.render(line, True, (200, 200, 200))
             self.screen.blit(text, (10, y))
-            y += 20
+            y += line_height
 
     def _render_entity_panel(self, entity: Person):
         """Render selected entity info panel."""
@@ -106,6 +136,24 @@ class UIRenderer:
             2,
             border_radius=5
         )
+
+        # Expand button (top right corner)
+        btn_size = 28
+        btn_x = panel_x + panel_width - btn_size - 8
+        btn_y = panel_y + 8
+        self.expand_button_rect = pygame.Rect(btn_x, btn_y, btn_size, btn_size)
+
+        # Button background
+        pygame.draw.rect(
+            self.screen,
+            (60, 60, 80),
+            self.expand_button_rect,
+            border_radius=4
+        )
+        # Button icon (expand)
+        expand_text = self.font_small.render("[+]", True, (180, 180, 200))
+        text_rect = expand_text.get_rect(center=self.expand_button_rect.center)
+        self.screen.blit(expand_text, text_rect)
 
         # Content
         x = panel_x + 15
@@ -130,6 +178,17 @@ class UIRenderer:
         money_surface = self.font_small.render(money_text, True, config.COLORS["text"])
         self.screen.blit(money_surface, (x, y))
         y += 25
+
+        # Conditions (injuries/states)
+        if entity.state.health_conditions:
+            conditions_text = ", ".join(entity.state.health_conditions[:3])
+            if len(entity.state.health_conditions) > 3:
+                conditions_text += f" (+{len(entity.state.health_conditions) - 3})"
+            # Use orange/red color for injuries
+            condition_color = (255, 150, 100)
+            cond_surface = self.font_small.render(f"⚠ {conditions_text}", True, condition_color)
+            self.screen.blit(cond_surface, (x, y))
+            y += 22
 
         # Status
         if entity.in_conversation:
@@ -175,8 +234,9 @@ class UIRenderer:
         y = self._render_section_header(x, y, "Relationships")
         if entity.relationships:
             for rel_id, rel in list(entity.relationships.items())[:3]:
-                # Show name and feeling
-                name_text = f"{rel.entity_name.split()[0]}: {rel.get_feeling_description()}"
+                # Show name and feeling (safely handle empty names)
+                display_name = rel.entity_name.split()[0] if rel.entity_name else "Unknown"
+                name_text = f"{display_name}: {rel.get_feeling_description()}"
                 name_surface = self.font_small.render(name_text, True, config.COLORS["text"])
                 self.screen.blit(name_surface, (x, y))
                 y += 18
@@ -234,3 +294,9 @@ class UIRenderer:
         header = self.font_medium.render(title, True, config.COLORS["text"])
         self.screen.blit(header, (x, y))
         return y + 22
+
+    def is_expand_button_clicked(self, x: int, y: int) -> bool:
+        """Check if a click hit the expand button."""
+        if self.expand_button_rect:
+            return self.expand_button_rect.collidepoint(x, y)
+        return False

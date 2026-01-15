@@ -30,43 +30,108 @@ class PromptBuilder:
         else:
             time_context = "- Time: Daytime"
 
+        # Physical state
+        speaker_conditions = speaker.state.get_conditions_string()
+        listener_conditions = self._get_visible_conditions(listener)
+
+        # Movement status
+        if speaker.state.effective_move_speed < 0.9:
+            movement_status = "impaired"
+        else:
+            movement_status = "normal"
+
         # Conversation phase guidance
         if turn_number >= max_turns - 1:
-            phase_hint = "\n\n**This conversation has been going on a while. You should wrap up and say goodbye soon. Use [END_CONVERSATION] after your farewell.**"
+            phase_hint = "\n\n**This conversation has been going on a while. You should wrap up and say goodbye soon.**"
         elif turn_number >= max_turns - 2:
             phase_hint = "\n\n*The conversation is winding down. Consider wrapping up naturally.*"
         else:
             phase_hint = ""
 
-        prompt = f"""You are {speaker.name}, a {speaker.role.role_type.value} in a small town.
+        prompt = f"""## STOP - READ BEFORE RESPONDING
+
+DO NOT USE ASTERISKS. No *action* text. No *sighs*. No *laughs*. No *looks around*. NONE.
+
+Output ONLY the spoken words your character says. Nothing else.
+
+The ONLY exception: actions that change game state, placed at the very end:
+- *hands over gold* *gives item* *punches* *walks away*
+
+If you write *sighs* or *looks* or *smiles* or ANY emotion/gesture, you have FAILED.
+
+---
+
+## YOUR IDENTITY
+You are **{speaker.name}**. Your name is {speaker.name}. You are a {speaker.role.role_type.value}.
+If asked your name, say "{speaker.name}".
 
 ## Your Personality
 {personality_desc}
 
+## Your Physical State
+- Health: {speaker.health:.0f}/{speaker.max_health:.0f}
+- Conditions: {speaker_conditions}
+- Movement: {movement_status}
+
 ## Current Situation
 {time_context}
-- Your health: {speaker.health:.0f}/{speaker.max_health:.0f}
 - Your money: {speaker.money:.0f} gold
 - Your inventory: {inventory_desc}
+
+## Who You're Talking To: {listener.name}
+- Appears: {"healthy" if listener.health > 70 else "injured" if listener.health > 30 else "severely injured"}
+- Visible conditions: {listener_conditions}
 
 ## Your Relationship with {listener.name}
 {relationship_desc}
 
-## Conversation Instructions
-- Stay completely in character as {speaker.name}
-- Your responses should reflect your personality traits
-- Keep responses to 1-2 sentences (this is casual town conversation)
-- Consider your relationship history when responding
-- Conversations should be brief and natural - don't drag them out
+## OUTPUT FORMAT - FOLLOW THIS EXACTLY
 
-## Actions (include at END of your response when appropriate)
-- To propose a trade: [TRADE: OFFER item_name FOR item_name_or_gold_amount]
-- To give a gift: [GIFT: item_name]
-- **To end the conversation and say goodbye: [END_CONVERSATION]**
+Format: "Your spoken dialogue here." *optional action at the very end*
 
-End conversations naturally after a few exchanges. Say your goodbye, then add [END_CONVERSATION].{phase_hint}"""
+RULES:
+1. ONLY spoken words in quotes - nothing else
+2. NO *actions* in the middle of dialogue - FORBIDDEN
+3. If you include an action, it goes AFTER all dialogue, at the END
+4. Actions are ONLY for state changes (violence, giving items, leaving)
+
+WRONG - action in middle: "Hello!" *laughs* "How are you?"
+WRONG - action interjected: *looks around* "What do you want?"
+WRONG - meaningless action: "Sure thing." *nods*
+WRONG - emotion action: "That's funny!" *laughs*
+
+CORRECT - dialogue only: "Hello! How are you?"
+CORRECT - dialogue only: "What do you want?"
+CORRECT - with state-change at END: "Take this." *hands over bread*
+CORRECT - with violence at END: "I've had enough of you!" *punches them*
+
+STATE-CHANGING actions (ONLY these, ONLY at the end):
+- *hands over 5 gold* → changes money
+- *punches them in the jaw* → changes health
+- *walks away* → ends conversation
+- *gives them the bread* → changes inventory
+- *pickpockets their coin purse* → changes inventory, changes money
+- *stabs self in the leg* → changes own's health
+
+## Conversation Style
+- You are {speaker.name}
+- Keep responses to 1-2 sentences
+- Be natural - say goodbye when done{phase_hint}"""
 
         return prompt
+
+    def _get_visible_conditions(self, person: Person) -> str:
+        """Get conditions that are visible to others."""
+        visible = []
+        visible_keywords = ["black eye", "broken", "limp", "bandaged", "bleeding",
+                           "bruised", "swollen", "cut", "wound", "scar"]
+
+        for condition in person.state.health_conditions:
+            condition_lower = condition.lower()
+            if any(kw in condition_lower for kw in visible_keywords):
+                visible.append(condition)
+
+        return ", ".join(visible) if visible else "appears healthy"
 
     def _build_personality_description(self, person: Person) -> str:
         """Generate natural language personality description."""

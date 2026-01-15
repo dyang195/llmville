@@ -1,5 +1,6 @@
 """Social Simulation Game - Entry Point."""
 
+import logging
 import os
 import sys
 
@@ -11,10 +12,31 @@ from dotenv import load_dotenv
 from src.core.game import Game
 
 
+def setup_logging():
+    """Configure logging for dialogue and action debugging."""
+    # Create formatter
+    formatter = logging.Formatter('%(message)s')
+
+    # Console handler
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(formatter)
+
+    # Set up loggers for our modules
+    for logger_name in ['dialogue_manager', 'action_interpreter', 'outcome_resolver', 'state_manager']:
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(logging.INFO)  # INFO for normal use, DEBUG for verbose
+        logger.addHandler(console_handler)
+        logger.propagate = False  # Don't duplicate to root logger
+
+
 def main():
     """Main entry point."""
     # Load environment variables
     load_dotenv()
+
+    # Set up logging for debugging
+    setup_logging()
 
     # Check for API key (optional - game works without AI)
     api_key = os.getenv("ANTHROPIC_API_KEY")

@@ -1,21 +1,27 @@
 """Orchestrates active conversations using background threads."""
 
+import logging
 import threading
 from concurrent.futures import ThreadPoolExecutor, Future
 from typing import Optional
 import time
 
 import config
+
+# Set up logging
+logger = logging.getLogger("dialogue_manager")
+logger.setLevel(logging.DEBUG)
 from ..ai.claude_client import ClaudeClient
 from ..ai.prompt_builder import PromptBuilder
 from ..ai.conversation import Conversation, ConversationState
-from ..ai.action_parser import ActionParser, ActionType
+from ..ai.action_interpreter import ActionInterpreter
+from ..ai.outcome_resolver import OutcomeResolver
+from ..systems.state_manager import StateManager
 from ..entities.person import Person
 from ..entities.entity_manager import EntityManager
 from ..entities.item import get_item
 from ..core.time_manager import TimeManager
 from ..systems.relationship import RelationshipSystem
-from .trade import Trade, TradeResult
 
 
 class DialogueManager:
@@ -34,7 +40,11 @@ class DialogueManager:
         self.entity_manager = entity_manager
         self.time_manager = time_manager
         self.relationship_system = relationship_system
-        self.action_parser = ActionParser()
+
+        # New open-ended action system
+        self.action_interpreter = ActionInterpreter(claude_client)
+        self.outcome_resolver = OutcomeResolver(claude_client)
+        self.state_manager = StateManager()
 
         # Active conversations
         self.conversations: dict[str, Conversation] = {}
@@ -47,6 +57,9 @@ class DialogueManager:
 
         # Track pending API requests per conversation
         self.pending_requests: dict[str, Future] = {}
+
+        # Track pending action processing (interpretation + resolution)
+        self.pending_actions: dict[str, Future] = {}
 
         # Cooldown between turns (seconds) - gives time to read
         self.turn_delay = 1.5
@@ -61,6 +74,10 @@ class DialogueManager:
         conversation.max_turns = self.max_turns
         self.conversations[conversation.id] = conversation
         self.last_turn_time[conversation.id] = 0
+
+        logger.info(f"\n{'='*60}")
+        logger.info(f"[CONVERSATION START] {entity_a.name} meets {entity_b.name}")
+        logger.info(f"{'='*60}")
 
         # Set as viewed if first conversation
         if self.viewed_conversation_id is None:
@@ -84,8 +101,25 @@ class DialogueManager:
             if not conversation.is_active():
                 continue
 
-            # Check if there's a pending request
-            if conv_id in self.pending_requests:
+            # Check if there's a pending action processing
+            if conv_id in self.pending_actions:
+                future = self.pending_actions[conv_id]
+                if future.done():
+                    try:
+                        result = future.result()
+                        self._apply_action_result(conversation, result)
+                    except Exception as e:
+                        print(f"Action processing error: {e}")
+
+                    del self.pending_actions[conv_id]
+                    self.last_turn_time[conv_id] = current_time
+
+                    # Check if we hit max turns
+                    if conversation.turn_count >= self.max_turns * 2:
+                        self._force_end_conversation(conversation)
+
+            # Check if there's a pending dialogue request
+            elif conv_id in self.pending_requests:
                 future = self.pending_requests[conv_id]
                 if future.done():
                     # Request completed - process result
@@ -100,13 +134,9 @@ class DialogueManager:
                             "*trails off awkwardly*"
                         )
                         conversation.switch_speaker()
+                        self.last_turn_time[conv_id] = current_time
 
                     del self.pending_requests[conv_id]
-                    self.last_turn_time[conv_id] = current_time
-
-                    # Check if we hit max turns
-                    if conversation.turn_count >= self.max_turns * 2:
-                        self._force_end_conversation(conversation)
             else:
                 # No pending request - maybe start a new turn (if not paused)
                 if not paused:
@@ -155,142 +185,110 @@ class DialogueManager:
         self.pending_requests[conversation.id] = future
 
     def _handle_turn_result(self, conversation: Conversation, response: str):
-        """Handle completed API response."""
+        """Handle completed API response - add message and submit action processing."""
         speaker = conversation.current_speaker
         listener = conversation.get_other_participant(speaker)
 
-        # Parse response for actions
-        clean_text, actions = self.action_parser.parse(response)
+        logger.info(f"\n[DIALOGUE] {speaker.name}: {response}")
 
-        # Add message to conversation
-        conversation.add_message(speaker, clean_text, actions)
+        # Add raw message to conversation immediately (so UI updates)
+        conversation.add_message(speaker, response)
 
-        # Process actions
-        end_requested = False
-        for action in actions:
-            if action.action_type == ActionType.END_CONVERSATION:
-                end_requested = True
-            self._handle_action(conversation, speaker, listener, action)
+        # Get conversation context for interpreter
+        context = conversation.get_messages_for_api(speaker)
 
-        # Switch speaker for next turn (if not ending)
-        if not end_requested:
-            conversation.switch_speaker()
+        # Submit action processing to background thread (non-blocking)
+        future = self.executor.submit(
+            self._process_action_in_background,
+            response,
+            speaker,
+            listener,
+            context
+        )
+        self.pending_actions[conversation.id] = future
 
-    def _handle_action(
+    def _process_action_in_background(
         self,
-        conversation: Conversation,
+        response: str,
         speaker: Person,
         listener: Person,
-        action
-    ):
-        """Handle a game action from dialogue."""
-        if action.action_type == ActionType.END_CONVERSATION:
+        context: list[dict]
+    ) -> dict:
+        """Process action interpretation and resolution in background thread.
+
+        Returns dict with action results to be applied on main thread.
+        """
+        result = {
+            "speaker_id": speaker.id,
+            "listener_id": listener.id,
+            "speaker_name": speaker.name,
+            "listener_name": listener.name,
+            "action": None,
+            "outcome": None,
+            "ends_conversation": False
+        }
+
+        try:
+            # Interpret the message for actions using LLM
+            action = self.action_interpreter.interpret(
+                dialogue_text=response,
+                speaker=speaker,
+                listener=listener,
+                conversation_context=context
+            )
+
+            if action:
+                result["action"] = action
+                result["ends_conversation"] = action.ends_conversation
+
+                # Resolve outcome using LLM with full conversation context
+                outcome = self.outcome_resolver.resolve(
+                    action, speaker, listener,
+                    conversation_context=context
+                )
+                result["outcome"] = outcome
+
+        except Exception as e:
+            print(f"Background action processing error: {e}")
+
+        return result
+
+    def _apply_action_result(self, conversation: Conversation, result: dict):
+        """Apply action results on main thread after background processing."""
+        # Get current entities (they may have changed during background processing)
+        speaker = None
+        listener = None
+
+        for entity in [conversation.participant_a, conversation.participant_b]:
+            if entity.id == result["speaker_id"]:
+                speaker = entity
+            elif entity.id == result["listener_id"]:
+                listener = entity
+
+        if not speaker or not listener:
+            conversation.switch_speaker()
+            return
+
+        outcome = result.get("outcome")
+        if outcome:
+            # Apply state changes on main thread
+            self.state_manager.apply_outcome(
+                outcome, speaker, listener,
+                game_time=self.time_manager.game_time
+            )
+
+            # Add narrator message to conversation for inline display
+            if outcome.narrative:
+                conversation.add_narrator_message(outcome.narrative)
+
+        # Check if action ends conversation
+        if result.get("ends_conversation"):
             conversation.state = ConversationState.ENDING
             self._end_conversation(conversation)
+            return
 
-        elif action.action_type == ActionType.TRADE:
-            self._handle_trade_offer(
-                conversation, speaker, listener,
-                action.data["offered"],
-                action.data["requested"]
-            )
-
-        elif action.action_type == ActionType.GIFT:
-            self._handle_gift(
-                conversation, speaker, listener,
-                action.data["item"]
-            )
-
-    def _handle_trade_offer(
-        self,
-        conversation: Conversation,
-        offerer: Person,
-        receiver: Person,
-        offered_str: str,
-        requested_str: str
-    ):
-        """Handle a trade offer."""
-        offered_id, offered_qty = self.action_parser.parse_item_reference(offered_str)
-        requested_id, requested_qty = self.action_parser.parse_item_reference(requested_str)
-
-        # Validate trade
-        can_trade = True
-
-        # Check if offerer has the item
-        if offered_id == 'gold':
-            if offerer.money < offered_qty:
-                can_trade = False
-        else:
-            if not offerer.has_item(offered_id, offered_qty):
-                can_trade = False
-
-        # Check if receiver has what's requested
-        if can_trade:
-            if requested_id == 'gold':
-                if receiver.money < requested_qty:
-                    can_trade = False
-            else:
-                if not receiver.has_item(requested_id, requested_qty):
-                    can_trade = False
-
-        # Auto-accept valid trades
-        if can_trade:
-            self._execute_trade(
-                offerer, receiver,
-                offered_id, offered_qty,
-                requested_id, requested_qty
-            )
-
-    def _execute_trade(
-        self,
-        offerer: Person,
-        receiver: Person,
-        offered_id: str,
-        offered_qty: int,
-        requested_id: str,
-        requested_qty: int
-    ):
-        """Execute a trade between two entities."""
-        # Transfer offered item/gold
-        if offered_id == 'gold':
-            offerer.money -= offered_qty
-            receiver.money += offered_qty
-        else:
-            offerer.remove_item(offered_id, offered_qty)
-            item = get_item(offered_id)
-            if item:
-                receiver.add_item(item, offered_qty)
-
-        # Transfer requested item/gold
-        if requested_id == 'gold':
-            receiver.money -= requested_qty
-            offerer.money += requested_qty
-        else:
-            receiver.remove_item(requested_id, requested_qty)
-            item = get_item(requested_id)
-            if item:
-                offerer.add_item(item, requested_qty)
-
-    def _handle_gift(
-        self,
-        conversation: Conversation,
-        giver: Person,
-        receiver: Person,
-        item_str: str
-    ):
-        """Handle giving a gift."""
-        item_id, quantity = self.action_parser.parse_item_reference(item_str)
-
-        if item_id == 'gold':
-            if giver.money >= quantity:
-                giver.money -= quantity
-                receiver.money += quantity
-        else:
-            if giver.has_item(item_id, quantity):
-                giver.remove_item(item_id, quantity)
-                item = get_item(item_id)
-                if item:
-                    receiver.add_item(item, quantity)
+        # Switch speaker for next turn
+        conversation.switch_speaker()
 
     def _force_end_conversation(self, conversation: Conversation):
         """Force end a conversation that has gone on too long."""
@@ -371,6 +369,8 @@ class DialogueManager:
                 self.viewed_conversation_id = None
             if cid in self.pending_requests:
                 del self.pending_requests[cid]
+            if cid in self.pending_actions:
+                del self.pending_actions[cid]
             if cid in self.last_turn_time:
                 del self.last_turn_time[cid]
             del self.conversations[cid]

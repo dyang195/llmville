@@ -62,6 +62,7 @@ class ClaudeClient:
     def __init__(self, api_key: str):
         self.client = Anthropic(api_key=api_key)
         self.model = config.CLAUDE_MODEL
+        self.action_engine_model = config.ACTION_ENGINE_MODEL
         self.rate_limiter = RateLimiter(
             requests_per_minute=config.API_REQUESTS_PER_MINUTE,
             tokens_per_minute=config.API_TOKENS_PER_MINUTE
@@ -221,3 +222,63 @@ NOTE: [memorable detail or "none"]"""
                     result["observation"] = obs
 
         return result
+
+    def generate_interpretation_sync(
+        self,
+        system_prompt: str,
+        user_message: str,
+        max_tokens: int = 300
+    ) -> str:
+        """Generate action interpretation from dialogue (synchronous).
+
+        Used by ActionInterpreter to extract actions from natural dialogue.
+        Uses the smarter action engine model.
+        """
+        self.rate_limiter.acquire(estimated_tokens=max_tokens)
+
+        try:
+            response = self.client.messages.create(
+                model=self.action_engine_model,
+                max_tokens=max_tokens,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_message}]
+            )
+
+            usage = response.usage
+            self.rate_limiter.record_usage(usage.input_tokens + usage.output_tokens)
+
+            return response.content[0].text
+
+        except Exception as e:
+            print(f"Interpretation error: {e}")
+            return '{"action_detected": false}'
+
+    def generate_outcome_sync(
+        self,
+        system_prompt: str,
+        user_message: str,
+        max_tokens: int = 400
+    ) -> str:
+        """Generate action outcome resolution (synchronous).
+
+        Used by OutcomeResolver to determine action success and effects.
+        Uses the smarter action engine model.
+        """
+        self.rate_limiter.acquire(estimated_tokens=max_tokens)
+
+        try:
+            response = self.client.messages.create(
+                model=self.action_engine_model,
+                max_tokens=max_tokens,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_message}]
+            )
+
+            usage = response.usage
+            self.rate_limiter.record_usage(usage.input_tokens + usage.output_tokens)
+
+            return response.content[0].text
+
+        except Exception as e:
+            print(f"Outcome resolution error: {e}")
+            return '{"success": false, "narrative": "*nothing happens*", "effects": {}}'

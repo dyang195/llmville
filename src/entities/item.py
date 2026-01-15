@@ -118,8 +118,19 @@ DEFAULT_ITEMS = {
 
 
 def get_item(item_id: str) -> Optional[Item]:
-    """Get an item by ID from the catalog."""
-    return DEFAULT_ITEMS.get(item_id)
+    """Get an item by ID from the catalog (case-insensitive)."""
+    # Try exact match first
+    if item_id in DEFAULT_ITEMS:
+        return DEFAULT_ITEMS[item_id]
+    # Try lowercase
+    lower_id = item_id.lower()
+    if lower_id in DEFAULT_ITEMS:
+        return DEFAULT_ITEMS[lower_id]
+    # Try matching by name
+    for item in DEFAULT_ITEMS.values():
+        if item.name.lower() == lower_id:
+            return item
+    return None
 
 
 def get_items_by_category(category: ItemCategory) -> list[Item]:

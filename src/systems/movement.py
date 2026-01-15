@@ -36,8 +36,9 @@ class MovementSystem:
             next_pos = entity.current_path[entity.path_index]
             entity.facing_direction = self._get_direction(entity.position, next_pos)
 
-        # Move along path
-        entity.move_progress += self.movement_speed * dt
+        # Move along path (modified by entity's effective move speed from conditions)
+        effective_speed = self.movement_speed * entity.state.effective_move_speed
+        entity.move_progress += effective_speed * dt
 
         # Check if reached next tile
         while entity.move_progress >= 1.0 and entity.path_index < len(entity.current_path):

@@ -43,8 +43,8 @@ class DialoguePanel:
         self.content_height = 0  # Total height of all messages
         self.user_scrolled = False  # Track if user manually scrolled
 
-        # Message area dimensions
-        self.msg_area_height = self.height - 70
+        # Message area dimensions (leave room for title and bottom status)
+        self.msg_area_height = self.height - 90
 
     def show(self, conversation: Conversation):
         """Show the panel with a conversation."""
@@ -77,7 +77,10 @@ class DialoguePanel:
         total_height = 10  # Initial padding
 
         for msg in messages:
-            total_height += self._get_message_height(msg)
+            if msg.get("is_narrator", False):
+                total_height += self._get_narrator_height(msg)
+            else:
+                total_height += self._get_message_height(msg)
 
         self.content_height = total_height
 
@@ -112,6 +115,34 @@ class DialoguePanel:
 
         return height
 
+    def _get_narrator_height(self, msg: dict) -> int:
+        """Calculate the height of a narrator message (action outcome)."""
+        content = msg["content"]
+        max_width = self.width - 100  # Narrower for centered text
+
+        # Wrap text
+        words = content.split()
+        lines = []
+        current_line = []
+
+        for word in words:
+            current_line.append(word)
+            test_line = ' '.join(current_line)
+            if self.font_message.size(test_line)[0] > max_width:
+                if len(current_line) > 1:
+                    current_line.pop()
+                    lines.append(' '.join(current_line))
+                    current_line = [word]
+                else:
+                    lines.append(test_line)
+                    current_line = []
+
+        if current_line:
+            lines.append(' '.join(current_line))
+
+        height = len(lines) * 18 + 16  # Line height + padding
+        return height
+
     def _scroll_to_bottom(self):
         """Scroll to the bottom of the content."""
         max_scroll = max(0, self.content_height - self.msg_area_height + 20)
@@ -140,9 +171,10 @@ class DialoguePanel:
         title_surface = self.font_title.render(title, True, self.text_color)
         self.screen.blit(title_surface, (self.x + 15, self.y + 10))
 
-        # Close hint
+        # Close hint (right-aligned with padding)
         close_hint = self.font_message.render("ESC to close | Scroll to navigate", True, self.dim_text_color)
-        self.screen.blit(close_hint, (self.x + self.width - 200, self.y + 12))
+        hint_x = self.x + self.width - close_hint.get_width() - 15
+        self.screen.blit(close_hint, (hint_x, self.y + 12))
 
         # Messages area
         msg_y = self.y + 50
@@ -159,17 +191,23 @@ class DialoguePanel:
         y_pos = msg_y + 10 - self.scroll_y
 
         for msg in messages:
-            msg_height = self._get_message_height(msg)
+            is_narrator = msg.get("is_narrator", False)
 
-            # Only render if visible
-            if y_pos + msg_height > msg_y and y_pos < msg_y + self.msg_area_height:
-                # Determine speaker color
-                if msg["speaker"] == self.conversation.participant_a.name:
-                    speaker_color = self.speaker_a_color
-                else:
-                    speaker_color = self.speaker_b_color
-
-                self._render_message(msg, self.x + 20, y_pos, speaker_color)
+            if is_narrator:
+                msg_height = self._get_narrator_height(msg)
+                # Only render if visible
+                if y_pos + msg_height > msg_y and y_pos < msg_y + self.msg_area_height:
+                    self._render_narrator_message(msg, y_pos)
+            else:
+                msg_height = self._get_message_height(msg)
+                # Only render if visible
+                if y_pos + msg_height > msg_y and y_pos < msg_y + self.msg_area_height:
+                    # Determine speaker color
+                    if msg["speaker"] == self.conversation.participant_a.name:
+                        speaker_color = self.speaker_a_color
+                    else:
+                        speaker_color = self.speaker_b_color
+                    self._render_message(msg, self.x + 20, y_pos, speaker_color)
 
             y_pos += msg_height
 
@@ -185,6 +223,54 @@ class DialoguePanel:
             waiting_text = "Waiting for response..."
             waiting_surface = self.font_message.render(waiting_text, True, self.dim_text_color)
             self.screen.blit(waiting_surface, (self.x + 15, self.y + self.height - 22))
+
+    def _render_narrator_message(self, msg: dict, y: int):
+        """Render a narrator message (action outcome) centered with different style."""
+        content = msg["content"]
+        max_width = self.width - 100
+        narrator_color = (200, 180, 140)  # Warm gold/tan color
+
+        # Wrap text
+        words = content.split()
+        lines = []
+        current_line = []
+
+        for word in words:
+            current_line.append(word)
+            test_line = ' '.join(current_line)
+            if self.font_message.size(test_line)[0] > max_width:
+                if len(current_line) > 1:
+                    current_line.pop()
+                    lines.append(' '.join(current_line))
+                    current_line = [word]
+                else:
+                    lines.append(test_line)
+                    current_line = []
+
+        if current_line:
+            lines.append(' '.join(current_line))
+
+        # Render each line centered, dashes only on middle line(s)
+        y_offset = y + 8
+        for i, line in enumerate(lines):
+            is_first = (i == 0)
+            is_last = (i == len(lines) - 1)
+            is_only = (len(lines) == 1)
+
+            # Single line gets dashes, otherwise only middle lines get dashes
+            if is_only:
+                display_line = f"— {line} —"
+            elif is_first or is_last:
+                display_line = line
+            else:
+                display_line = f"— {line} —"
+
+            text_surface = self.font_message.render(display_line, True, narrator_color)
+            text_rect = text_surface.get_rect()
+            text_rect.centerx = self.x + self.width // 2
+            text_rect.y = y_offset
+            self.screen.blit(text_surface, text_rect)
+            y_offset += 18
 
     def _render_message(self, msg: dict, x: int, y: int, speaker_color: tuple) -> int:
         """Render a single message. Returns the y position for the next message."""

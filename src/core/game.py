@@ -14,6 +14,7 @@ from ..systems.health import HealthSystem
 from ..systems.relationship import RelationshipSystem
 from ..rendering.renderer import Renderer
 from ..ui.dialogue_panel import DialoguePanel
+from ..ui.character_panel import CharacterPanel
 
 
 class Game:
@@ -41,6 +42,7 @@ class Game:
 
         # UI
         self.dialogue_panel = DialoguePanel(self.screen)
+        self.character_panel = CharacterPanel(self.screen, self.entity_manager)
 
         # Rendering
         self.renderer = Renderer(
@@ -81,10 +83,19 @@ class Game:
 
             elif event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_ESCAPE:
-                    if self.dialogue_panel.visible:
+                    if self.character_panel.visible:
+                        self.character_panel.hide()
+                    elif self.dialogue_panel.visible:
                         self.dialogue_panel.hide()
                     else:
                         self.running = False
+                elif event.key == pygame.K_TAB:
+                    # Toggle character panel with selected entity
+                    self.character_panel.toggle(self.renderer.selected_entity)
+                elif event.key == pygame.K_LEFT and self.character_panel.visible:
+                    self.character_panel.prev_entity()
+                elif event.key == pygame.K_RIGHT and self.character_panel.visible:
+                    self.character_panel.next_entity()
                 elif event.key == pygame.K_SPACE:
                     self.time_manager.toggle_pause()
                 elif event.key == pygame.K_EQUALS or event.key == pygame.K_PLUS:
@@ -125,6 +136,11 @@ class Game:
         # Check if clicking inside dialogue panel
         if self.dialogue_panel.is_point_inside(x, y):
             return  # Click absorbed by panel
+
+        # Check if clicking expand button on entity panel
+        if self.renderer.selected_entity and self.renderer.ui_renderer.is_expand_button_clicked(x, y):
+            self.character_panel.show(self.renderer.selected_entity)
+            return
 
         # If dialogue panel is open and clicked outside, close it
         if self.dialogue_panel.visible:
@@ -242,6 +258,10 @@ class Game:
         if self.dialogue_panel.visible:
             self.dialogue_panel.update()  # Auto-scroll to latest
             self.dialogue_panel.render()
+
+        # Render character panel if visible (on top)
+        if self.character_panel.visible:
+            self.character_panel.render()
 
         pygame.display.flip()
 
