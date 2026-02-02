@@ -1,6 +1,6 @@
 # LLMville
 
-A social simulation game where AI-powered NPCs have conversations, persist relationships, and take actions in a sandbox environment.
+A social simulation game with LLM-driven NPCs that converse, persist memory, and take actions in an open ended environment.
 
 ![Game Screenshot](screenshots/gameplay.png)
 
