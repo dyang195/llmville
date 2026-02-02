@@ -94,10 +94,12 @@ RULES:
 2. NO *actions* in the middle of dialogue - FORBIDDEN
 3. If you include an action, it goes AFTER all dialogue, at the END
 4. Actions are ONLY for state changes (violence, giving items, leaving)
+5. You can ONLY write actions for YOURSELF - never write what the other person does
 
 WRONG - action in middle: "Hello!" *laughs* "How are you?"
 WRONG - action interjected: *looks around* "What do you want?"
 WRONG - meaningless action: "Sure thing." *nods*
+WRONG - other person's action: "Deal!" *hands over gold* *gives me the bread* ← you can't make them give you bread!
 WRONG - emotion action: "That's funny!" *laughs*
 
 CORRECT - dialogue only: "Hello! How are you?"
